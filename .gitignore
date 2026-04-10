@@ -1,0 +1,46 @@
+# LaTeX build products
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.brf
+*.dvi
+*.fdb_latexmk
+*.fls
+*.glg
+*.glo
+*.gls
+*.idx
+*.ilg
+*.ind
+*.ist
+*.loa
+*.lof
+*.log
+*.lot
+*.maf
+*.mtc*
+*.nav
+*.nlo
+*.nls
+*.out
+*.ps
+*.run.xml
+*.snm
+*.spl
+*.synctex.gz
+*.toc
+*.vrb
+*.xdv
+*.xcp
+
+# Editor and temporary files
+*.bak
+*.sav
+*.tmp
+*~
+
+# Generated manuscript PDFs. Source figure PDFs under images/ are intentionally kept.
+/access_revised_v2.pdf
+/main.pdf
+!images/*.pdf
