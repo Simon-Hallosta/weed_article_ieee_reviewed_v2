@@ -70,8 +70,8 @@
 
 
 
-The integration of multispectral imaging data with vegetation indices (VIs) offers potential improvements in weed detection for precision agriculture. Weed detection, particularly for species like black-grass (\textit{Alopecurus myosuroides}), remains challenging due to its visual similarity to crops like wheat. By utilizing data captured from unmanned aerial vehicles (UAVs) over winter wheat fields, we assess the impact of key VIs—including the Normalized Difference Vegetation Index (NDVI), Triangular Greenness Index (TGI), and Excess Green Index (ExG)—on the accuracy of black-grass detection. A modified YOLO network was developed to incorporate five spectral bands (Blue, Green, Red, Red Edge, Near-Infrared) together with these indices.
-The results suggest that models incorporating VIs, particularly TGI and ExG, show improved detection performance compared to the baseline model using only the five spectral bands. Specifically, the TGI-enhanced model achieved an average precision (AP) of 0.89 between rows and 0.55 within rows, demonstrating its potential for improved detection in different field conditions. These results indicate that the combination of multispectral data with vegetation indices can provide valuable insights for enhancing weed detection accuracy in agricultural settings.
+The integration of multispectral imaging data with vegetation indices (VIs) offers potential improvements in weed detection for precision agriculture. Weed detection, particularly for species like black-grass (\textit{Alopecurus myosuroides}), remains challenging due to its visual similarity to crops like wheat. By utilizing data captured from unmanned aerial vehicles (UAVs) over winter wheat fields, we assess the impact of key VIs--including the Normalized Difference Vegetation Index (NDVI), Triangular Greenness Index (TGI), and Excess Green Index (ExG)--on the accuracy of black-grass detection. A YOLOv8 instance-segmentation detector was adapted from RGB imagery to multispectral inputs by changing the input configuration to accept either five aligned spectral bands (Blue, Green, Red, Red Edge, Near-Infrared) or the same five bands together with one VI channel.
+The results suggest that input-channel configurations incorporating VIs, particularly TGI and ExG, show improved detection performance compared to the baseline configuration using only the five spectral bands. Specifically, the TGI configuration achieved an average precision (AP) of 0.89 between rows and 0.55 within rows, demonstrating its potential for improved detection in different field conditions. These results indicate that the combination of multispectral data with vegetation indices can provide valuable insights for enhancing weed detection accuracy in agricultural settings.
 
 
 \end{abstract}
@@ -195,38 +195,62 @@ Here, the wavelength in $nm$ is denoted by $\lambda$, the image by $I$, and the 
 
 There is an inverse relationship between the vegetation indices TGI, NDVI, ExG, and the vegetation index NDWI, as illustrated in Figure \ref{fig:VI-Images}. This occurs because TGI, NDVI, and ExG are optimized to highlight green vegetation: TGI and ExG emphasize green reflectance, while NDVI leverages the strong NIR reflectance of chlorophyll in plants, leading to high values in vegetated areas. In contrast, NDWI, designed to identify water bodies by contrasting green and NIR reflectance, shows low values in these vegetated areas due to their high NIR reflectance. Conversely, water bodies, which reflect more green light and less NIR light, exhibit high NDWI values, thereby resulting in the observed inverse relationship.
 
-\subsection{Model}
+\subsection{Model and Training Adaptation}
 
-Our detection model is a modified version of the YOLO architecture \cite{Jocher_Ultralytics_YOLO_2023}, adapted to accept multispectral inputs. In contrast to conventional YOLO networks that use RGB images, our baseline model uses the five aligned spectral bands captured by the UAV (Blue, Green, Red, Red Edge, and Near-Infrared (NIR); see Section~\ref{seq:VI}).
+The detector is based on the YOLOv8 instance-segmentation architecture \cite{Jocher_Ultralytics_YOLO_2023}, adapted to accept multispectral inputs. In contrast to conventional YOLO networks that use RGB images, the baseline configuration uses the five aligned spectral bands captured by the UAV (Blue, Green, Red, Red Edge, and Near-Infrared (NIR); see Section~\ref{seq:VI}). The architecture-level adaptation is the input-channel configuration: the baseline uses five input channels, while the VI configurations use six input channels. The backbone and segmentation head follow the YOLOv8-seg design; no new detection block is introduced.
 
 As previous studies have also confirmed, multispectral data can improve detection in agricultural settings by providing spectral information beyond the visible range \cite{liu_automated_2023, sportelli_evaluation_2023, dutta_multispectral_2021, tang_cgs_yolo_2025}. We therefore evaluate whether adding a single vegetation-index (VI) channel to the five-band baseline improves black-grass detection.
 
-The investigated models are compared to a baseline \emph{5-channel} model (five spectral bands only) and to otherwise identical models where the same five bands are supplemented with one additional VI channel (NDVI, TGI, ExG, or NDWI). This is in order to analyze the impact of each vegetation index separately.
+The investigated input-channel configurations are compared to a baseline \emph{5-channel} configuration (five spectral bands only) and to otherwise identical 6-channel configurations where the same five bands are supplemented with one additional VI channel (NDVI, TGI, ExG, or NDWI). This controlled design analyzes the impact of each vegetation index separately while avoiding a comparison across different detector families.
+
+The training loop was adapted to use stacked multispectral arrays rather than RGB images. Because hue-, saturation-, and value-based color augmentation assumes RGB-like image semantics and is not directly meaningful for stacked spectral bands and VI channels, the HSV augmentation terms were disabled in the multispectral training runs. Geometric augmentations and other training settings were handled within the YOLO training framework.
 
 Precise band-to-band alignment is crucial for both vegetation-index computation and reliable training and inference. Accordingly, all spectral bands were geometrically aligned before stacking the channels and feeding them to the network (Figure~\ref{fig:Model-graph}).
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=0.95\textwidth]{images/Model Black-grass yolo v2.drawio.pdf}
-    \caption{Data-processing pipeline for detecting black-grass. Five aligned multispectral bands (Section~\ref{seq:VI}) are stacked together with an optional vegetation-index channel to form the model input used for both training and inference. The baseline (5-channel) model uses only the aligned bands as input.}
+    \caption{Data-processing pipeline for detecting black-grass. Five aligned multispectral bands (Section~\ref{seq:VI}) are stacked together with an optional vegetation-index channel to form the YOLOv8-seg input used for both training and inference. The baseline (5-channel) configuration uses only the aligned bands as input, while each 6-channel configuration adds one vegetation-index channel.}
     \label{fig:Model-graph}
 \end{figure*}
+
+\begin{table}[t]
+\centering
+\caption{Reproducibility details for the controlled detector comparison.}
+\label{tab:reproducibility_details}
+\scriptsize
+\begin{tabular}{p{0.29\linewidth} p{0.55\linewidth}}
+\toprule
+\textbf{Item} & \textbf{Description} \\
+\midrule
+Detector family & YOLOv8 instance segmentation with the standard YOLOv8-seg backbone and segmentation head. \\
+Implementation & Ultralytics YOLOv8 training with CUDA acceleration configured in the training script. \\
+Input configurations & 5-channel baseline (B, G, R, RE, NIR) and 6-channel VI configurations (B, G, R, RE, NIR plus one of TGI, ExG, NDVI, or NDWI). \\
+Training data unit & One aligned UAV image stack and its corresponding YOLO segmentation annotation file. No additional overlapping tiling step was applied after the aligned image stacks were generated for this experiment. \\
+Data split & Train, validation, and test samples were assigned from different field zones. Within the final dataset preparation, annotated image/label files were split into 70\% training, 15\% validation, and 15\% test data using a fixed random seed. \\
+Multispectral training adaptation & The training pipeline used stacked multispectral arrays instead of RGB images. RGB-specific HSV augmentation terms were disabled for the multispectral runs. \\
+Evaluation thresholds & The PR and F1-confidence curves sweep the detector confidence score rather than reporting one fixed operating threshold. AP is computed from the resulting PR behavior with IoU-based matching between predicted and annotated instances. \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Experiment}
 
 \subsection{Data Acquisition}
-The data was collected from two winter wheat fields in the south of Sweden. In each field, we had a designated parcel of approximately 20~m $\times$ 20~m. The parcels had a recorded occurrence of black-grass. 
+The broader acquisition campaign covered two winter wheat fields in the south of Sweden. In each field, we had a designated parcel of approximately 20~m $\times$ 20~m. The parcels had a recorded occurrence of black-grass. The images were inspected from late February to early June to identify periods where black-grass could be annotated reliably and where detection would be agronomically useful.
 
 The data was collected using a multispectral drone, equipped with five single-band cameras with 2-megapixel (2~MP) sensors: Blue (B), Green (G), Red (R), Red Edge (RE), and Near-Infrared (NIR). The drone was flown at a speed of 1~m/s and altitudes of 1-2~meters, capturing images with a resolution of 0.6-1.2~mm/pixel and consequently an area of 0.8~m $\times$ 1.0~m to 1.6~m $\times$ 2.0~m. 
 
-The images were captured at different stages of the black-grass growth cycle during the spring, from late February to early June.
+The final experiments reported in this article used the Field~2 subset from late March and early-to-mid April. This period was selected because the wheat had not yet grown over the black-grass plants, while the black-grass had developed enough to be visually and spectrally differentiated from wheat during annotation. Earlier flights were less useful because the target plants were harder to distinguish, while later flights suffered from increasing crop occlusion.
 
 The topography of the parcels featured stiff clay soil interspersed with debris from the previous year's harvest, presenting challenges such as high reflectance from dead plant material, see Figures~\ref{fig:VI-Images} and \ref{fig:comparison}. Wheat was sown in-rows spaced 25~cm apart, and images were oriented to capture these rows horizontally, thus maintaining consistency in the viewing angle and direction across all datasets.
 
 \subsection{Annotation}
-The data annotation process was critical for preparing the images for training and evaluating the neural network model for weed detection. The annotations were conducted using both RGB and NDVI images as references, with human experts carefully reviewing the images to identify and mark the positions of black-grass.
+The data annotation process was critical for preparing the images for training and evaluating the detector for weed detection. The annotations were conducted using both RGB and NDVI images as references, with human experts carefully reviewing the images to identify and mark the positions of black-grass.
 
 A single experienced annotator performed all annotations, ensuring consistency across the dataset. This annotator was well-versed in recognizing the specific visual characteristics of black-grass and wheat, which can be particularly challenging during their early growth stages when they appear visually similar. To address this challenge, the annotator used NDVI images alongside RGB images. The NDVI images provided additional spectral information that highlighted differences in vegetation health, aiding in the accurate identification of black-grass.
+
+The NDVI images were used as a visual support source during annotation, not as an automatic labeling rule. Because NDVI was also evaluated as one of the model input channels, this annotation support is an important validity consideration: NDVI-assisted annotation may influence interpretation of the NDVI-channel results. We therefore interpret the NDVI configuration cautiously and focus the main conclusions on the comparative behavior across all VI configurations rather than treating NDVI as a fully independent annotation-free signal.
 
 The resulting annotated data included labels specifying the presence of black-grass and its positional relationship to the wheat rows (either within the rows or between the rows).
 
@@ -239,37 +263,45 @@ After calibration, keypoints are detected and matched across images using the Sc
 
 The matched keypoints are then used to compute a transformation matrix that best aligns the two images. This matrix is calculated using a method that minimizes the back-projection error, ensuring that the transformed points in one image match as closely as possible to their corresponding points in the other image \cite{hartley2003}. This process ensures that multispectral images are overlaid precisely, which is fundamental for computing vegetation indices \cite{hallosta_multispectral_2024}. For example, the NDVI is computed using the NIR and red images through this process.
 
+\subsection{Dataset Construction and Split}
+The final detector dataset was constructed from the aligned multispectral image stacks and their corresponding segmentation annotations. Each training or evaluation sample corresponds to one aligned UAV image stack. No additional overlapping patch-generation step was applied after this stack-generation stage for the reported experiments.
+
+Only annotated image stacks were retained for the detector comparison. The final split was designed so that training, validation, and test samples came from different parts of the field. Within this dataset preparation, the annotated image/label files were split into 70\% training, 15\% validation, and 15\% test data with a fixed random seed to make the split reproducible.
+
+This split reduces direct reuse of the same image content across training and evaluation, but it does not remove all possible leakage-like effects. The subsets still come from the same field, acquisition setup, soil background, and narrow crop-growth window. The results should therefore be interpreted as a controlled within-field evaluation of VI-channel effects, not as proof of full geographic or seasonal generalization.
 
 \section{Results}
 Our analysis investigates how different vegetation indices influence the network's ability to detect black-grass.
 The primary indices considered were the Triangular Greenness Index (TGI), Excess Green Index (ExG), Normalized Difference Vegetation Index (NDVI), and Normalized Difference Water Index (NDWI). These indices were assessed using performance metrics, including average precision (AP), recall, and F1-score. In line with previous studies \cite{su_spectral_2022}, the TGI index shows strong performance on several metrics, indicating that it can enhance detection performance for some operating points.
 
+In the PR and F1-confidence analyses, the threshold refers to the confidence score assigned by the detector to each predicted instance. The curves therefore show how precision, recall, and F1-score change as this confidence threshold is swept, rather than reporting performance at a single fixed threshold.
+
 \begin{figure*}[htbp]
     \centering
     \includegraphics[width=1\textwidth]{images/PR-curves_Different_Positions_v3.png}
-    \caption{Precision-Recall (PR) curves for different models across three positional categories: Between, In row, and All. The models evaluated are the 5-channel model, TGI, ExG, NDVI, NDWI at a resolution of 1280x1280, and TGI at a resolution of 640x640. The PR curves illustrate the trade-off between precision and recall for each model, with the Average Precision (AP) indicating overall performance.}
+    \caption{Precision-Recall (PR) curves for different input-channel configurations across three positional categories: Between, In row, and All. The configurations evaluated are the 5-channel baseline, TGI, ExG, NDVI, NDWI at a resolution of 1280x1280, and TGI at a resolution of 640x640. The PR curves illustrate the trade-off between precision and recall for each configuration, with the Average Precision (AP) indicating overall performance.}
     \label{fig:PR-curves-positions}
 \end{figure*}
 
 \subsection{Precision--recall characteristics across confidence thresholds}
-As illustrated in Figure~\ref{fig:PR-curves-positions}, the precision--recall (PR) curves demonstrate that models utilizing the Triangular Greenness Index (TGI) and Excess Green Index (ExG) maintain higher precision while achieving substantial recall values across different positional categories. This robustness underscores their effectiveness in distinguishing black-grass from wheat under varied conditions. Specifically, the TGI model consistently outperforms other models in both ``between rows'' and ``in-row'' positions, indicating that it generalizes well across the two spatial contexts. Additionally, it is noteworthy that while the baseline 5-channel model achieves high recall, it suffers from lower precision at the beginning of the PR curves. This trade-off is further emphasized in the F1-score curves shown in Figure~\ref{fig:F1-curves-positions}, where the baseline model exhibits a lower overall F1-score across confidence thresholds compared to most models incorporating an additional vegetation index channel.
+As illustrated in Figure~\ref{fig:PR-curves-positions}, the precision--recall (PR) curves demonstrate that configurations utilizing the Triangular Greenness Index (TGI) and Excess Green Index (ExG) maintain higher precision while achieving substantial recall values across different positional categories. This robustness underscores their effectiveness in distinguishing black-grass from wheat under varied conditions. Specifically, the TGI configuration consistently outperforms other configurations in both ``between rows'' and ``in-row'' positions, indicating that it generalizes well across the two spatial contexts within the evaluated field data. Additionally, it is noteworthy that while the baseline 5-channel configuration achieves high recall, it suffers from lower precision at the beginning of the PR curves. This trade-off is further emphasized in the F1-score curves shown in Figure~\ref{fig:F1-curves-positions}, where the baseline configuration exhibits a lower overall F1-score across confidence thresholds compared to most configurations incorporating an additional vegetation index channel.
 
 \subsection{Average Precision (AP) and confidence intervals (CIs)}
 To provide a threshold-aggregated summary of detection performance, we report Average Precision (AP) \cite{lin_coco_2014} together with 95\% confidence intervals (CIs). Confidence intervals were computed using bootstrap resampling \cite{efron1979bootstrap}.
-For completeness, we also report results for a TGI model trained at a reduced input resolution (640$\times$640), whereas the remaining models were trained and evaluated at 1280$\times$1280.
-Table~\ref{tab:performance_metrics_by_position} presents the AP values and their 95\% confidence intervals for each model and positional category. Key observations include:
+For completeness, we also report results for a TGI configuration trained at a reduced input resolution (640$\times$640), whereas the remaining configurations were trained and evaluated at 1280$\times$1280.
+Table~\ref{tab:performance_metrics_by_position} presents the AP values and their 95\% confidence intervals for each configuration and positional category. Key observations include:
 \begin{itemize}
-    \item \textbf{Between Rows:} The TGI model achieves the highest AP (0.892), closely followed by the 5-channel model (0.889). The NDWI model underperforms with an AP of 0.742.
-    \item \textbf{In Rows:} All models show reduced performance due to occlusion by wheat. The TGI model maintains a relatively higher performance (AP~=~0.553), closely followed by ExG (AP~=~0.547), \mbox{5-channel (AP~=~0.545)} and NDVI (AP~=~0.523).
-    \item \textbf{All:} The 5-channel model achieves the highest AP of 0.805, followed by the TGI model (1280$\times$1280) with an AP of 0.800. While the baseline is marginally higher on the combined set, the TGI model performs comparatively better when the data are analyzed separately by positional category, suggesting that the overall ranking is influenced by the composition of the combined dataset.
+    \item \textbf{Between Rows:} The TGI configuration achieves the highest AP (0.892), closely followed by the 5-channel baseline (0.889). The NDWI configuration underperforms with an AP of 0.742.
+    \item \textbf{In Rows:} All configurations show reduced performance due to occlusion by wheat. The TGI configuration maintains a relatively higher performance (AP~=~0.553), closely followed by ExG (AP~=~0.547), \mbox{5-channel (AP~=~0.545)} and NDVI (AP~=~0.523).
+    \item \textbf{All:} The 5-channel baseline achieves the highest AP of 0.805, followed by the TGI configuration (1280$\times$1280) with an AP of 0.800. While the baseline is marginally higher on the combined set, the TGI configuration performs comparatively better when the data are analyzed separately by positional category, suggesting that the overall ranking is influenced by the composition of the combined dataset.
 \end{itemize}
 
 \begin{table}[htbp]
 \centering
-\caption{Average Precision (AP) values for each model and position, along with their corresponding 95\% confidence intervals. Confidence intervals were computed using 10000 bootstrap resamples.}
+\caption{Average Precision (AP) values for each input-channel configuration and position, along with their corresponding 95\% confidence intervals. Confidence intervals were computed using 10000 bootstrap resamples.}
 \begin{tabular}{lll}
 \toprule
-\multicolumn{1}{c}{\textbf{Model}} & \multicolumn{1}{c}{\textbf{AP}} & \multicolumn{1}{c}{\textbf{95\% CI}} \\
+\multicolumn{1}{c}{\textbf{Configuration}} & \multicolumn{1}{c}{\textbf{AP}} & \multicolumn{1}{c}{\textbf{95\% CI}} \\
 \midrule
 \multicolumn{3}{c}{\textbf{Position: Between}} \\
 5 channel 1280x1280 & 0.889 & (0.810 - 0.971) \\
@@ -302,15 +334,15 @@ TGI 640x640 & 0.765 & (0.711 - 0.818) \\
 \begin{figure*}[htbp]
     \centering
     \includegraphics[width=1\textwidth]{images/F1-Confidence-curves_Different_Positions_v3.png}
-    \caption{F1-Confidence curves for different models across three positional categories: Between, In row, and All. The models evaluated include the 5 channel model, TGI, ExG, NDVI, NDWI at a resolution of 1280x1280, and TGI at a resolution of 640x640. The F1 score represents the harmonic mean of precision and recall, providing a balanced measure of the models' performance as a function of confidence score.}
+    \caption{F1-Confidence curves for different input-channel configurations across three positional categories: Between, In row, and All. The configurations evaluated include the 5-channel baseline, TGI, ExG, NDVI, NDWI at a resolution of 1280x1280, and TGI at a resolution of 640x640. The F1 score represents the harmonic mean of precision and recall, providing a balanced measure of performance as a function of confidence score.}
     \label{fig:F1-curves-positions}
 \end{figure*}
 
-Figures~\ref{fig:PR-curves-positions} and \ref{fig:F1-curves-positions} depict PR behavior and F1-confidence curves, respectively. Together, these curves highlight the precision--recall trade-off when selecting confidence thresholds for practical deployment. In particular, the TGI and ExG models tend to achieve more balanced performance across thresholds, whereas the baseline 5-channel model reaches high recall at the cost of lower precision at lower confidence thresholds.
+Figures~\ref{fig:PR-curves-positions} and \ref{fig:F1-curves-positions} depict PR behavior and F1-confidence curves, respectively. Together, these curves highlight the precision--recall trade-off when selecting confidence thresholds for practical deployment. In particular, the TGI and ExG configurations tend to achieve more balanced performance across thresholds, whereas the baseline 5-channel configuration reaches high recall at the cost of lower precision at lower confidence thresholds.
 
 The detailed analysis reveals several key insights:
 \begin{itemize}
-    \item \textbf{Model Performance:} The TGI model trained on lower resolution (640x640) outperforms the NDWI model, highlighting the significance of the vegetation index relative to image resolution in this comparison.
+    \item \textbf{Configuration Performance:} The TGI configuration trained on lower resolution (640x640) outperforms the NDWI configuration, highlighting the significance of the vegetation index relative to image resolution in this comparison.
     \item \textbf{Positional Differences:} There is a notable difference in detection performance between weeds located between rows and those within rows, with better performance in less occluded conditions. This underscores the need for robust detection under occlusion.
 \end{itemize}
 
@@ -320,21 +352,21 @@ The bootstrap confidence intervals quantify uncertainty in the AP estimates due 
 Our study investigates the impact of different vegetation indices on the performance of neural networks in detecting black-grass using UAV-acquired multispectral images. The main findings are as follows:
 
 \begin{itemize}
-    \item The TGI index demonstrated enhanced performance, closely followed by the ExG index. Both indices outperformed the 5-channel baseline model in terms of precision while maintaining high recall values.
-    \item The NDWI index underperformed compared to the other indices, negatively impacting the model’s detection capabilities.
-    \item The choice of vegetation index can mitigate the limitations of lower resolution images, as seen with the TGI model at 640x640 resolution performing better than the NDWI model.
-    \item The 5-channeled baseline model achieved the highest overall recall. 
+    \item The TGI index demonstrated enhanced performance, closely followed by the ExG index. Both indices outperformed the 5-channel baseline configuration in terms of precision while maintaining high recall values.
+    \item The NDWI index underperformed compared to the other indices, negatively impacting the detector's performance in this configuration.
+    \item The choice of vegetation index can mitigate the limitations of lower resolution images, as seen with the TGI configuration at 640x640 resolution performing better than the NDWI configuration.
+    \item The 5-channel baseline configuration achieved the highest overall recall.
 \end{itemize}
 
-\subsection{Model Performance and Interpretation}
+\subsection{Configuration Performance and Interpretation}
 The increased performance of the TGI and ExG indices can be attributed to their ability to preserve the color differences between black-grass and wheat more effectively. These indices' lower contrast and broader value range contribute to better detection outcomes. This finding is consistent with the results of Su et al., who found that specific vegetation indices can improve the accuracy of black-grass weed mapping models \cite{su_spectral_2022}. It also aligns with recent black-grass studies showing that multispectral and hyperspectral cues are informative in cereal crops, while also being sensitive to acquisition setting and between-site variation \cite{cox_black-grass_2023, goodsell_black_grass_2024, darbyshire_blackgrass_2025}.
 
-In contrast, the NDWI index's negative values for vegetative regions might have hindered the model’s learning process, resulting in poorer performance. This hypothesis is supported by Lambert et al., who noted challenges in model transferability across different environmental conditions, which could be exacerbated by indices that do not align well with the spectral properties of the target vegetation \cite{lambert_evaluating_2018}.
+In contrast, the NDWI index's negative values for vegetative regions might have hindered learning for this configuration, resulting in poorer performance. This hypothesis is supported by Lambert et al., who noted challenges in model transferability across different environmental conditions, which could be exacerbated by indices that do not align well with the spectral properties of the target vegetation \cite{lambert_evaluating_2018}.
 
-The 5-channel model achieved the highest recall, indicating its effectiveness in detecting most occurrences of black-grass. However, the TGI and ExG models maintained higher precision, providing more reliable detections with fewer false positives. This trade-off is crucial depending on the application—whether the goal is to detect all weeds or to ensure precise detection with minimal errors.
+The 5-channel baseline configuration achieved the highest recall, indicating its effectiveness in detecting most occurrences of black-grass. However, the TGI and ExG configurations maintained higher precision, providing more reliable detections with fewer false positives. This trade-off is crucial depending on the application--whether the goal is to detect all weeds or to ensure precise detection with minimal errors.
 
 \subsection{Detection Between and In Rows}
-An essential aspect of our findings is the difference in detection performance between rows and within rows of wheat. Figures~\ref{fig:PR-curves-positions} and \ref{fig:F1-curves-positions}, along with Table \ref{tab:performance_metrics_by_position}, show that models are more successful in identifying black-grass between rows, where there is less occlusion and higher contrast. In-row detection is hindered by occlusion and visual similarity between wheat and black-grass, leading to lower precision and recall. For instance, the TGI model achieved an AP of 0.892 between rows compared to 0.553 within rows. This highlights the need for advanced techniques to improve in-row detection, which remains a significant challenge for UAV-based weed detection.
+An essential aspect of our findings is the difference in detection performance between rows and within rows of wheat. Figures~\ref{fig:PR-curves-positions} and \ref{fig:F1-curves-positions}, along with Table \ref{tab:performance_metrics_by_position}, show that the configurations are more successful in identifying black-grass between rows, where there is less occlusion and higher contrast. In-row detection is hindered by occlusion and visual similarity between wheat and black-grass, leading to lower precision and recall. For instance, the TGI configuration achieved an AP of 0.892 between rows compared to 0.553 within rows. This highlights the need for advanced techniques to improve in-row detection, which remains a significant challenge for UAV-based weed detection.
 
 \begin{figure*}[h]%[htbp]
     \centering
@@ -347,13 +379,13 @@ An essential aspect of our findings is the difference in detection performance b
     \subfigure[Annotations in NDVI image]{%
         \includegraphics[width=0.3\textwidth]{images/Annotation-NDVI.png}
     }
-    \caption{Comparison of the original RGB image (a), the predictions on the RGB image (b), and annotations on the NDVI image (c). The images illustrate the model's ability to detect annotated instances of black-grass while also suggesting highly probable candidates that may have been missed during annotation. The orange markings indicate black-grass classified as "between the rows," while the green masks show instances considered as located "in the wheat rows." The model used for predictions is the reference model, trained on the original five image bands.}
+    \caption{Comparison of the original RGB image (a), the predictions on the RGB image (b), and annotations on the NDVI image (c). The images illustrate the detector's ability to detect annotated instances of black-grass while also suggesting highly probable candidates that may have been missed during annotation. The orange markings indicate black-grass classified as "between the rows," while the green masks show instances considered as located "in the wheat rows." The detector used for predictions is the reference 5-channel configuration, trained on the original five image bands.}
     \label{fig:comparison}
 \end{figure*}
 
 \subsection{Implications of Model Predictions Compared to Annotations}
 
-Figure \ref{fig:comparison} provides visual comparisons of original RGB images, model predictions, and NDVI annotations, showcasing the network's proficiency in detecting black-grass amidst wheat. The model identifies highly probable candidates for black-grass, some of which may actually be instances of black-grass that were missed during the annotation stage. This observation suggests that certain false positives impacting the precision scores might be accurate detections. Consequently, this could lead to an underestimation of the precision scores, indicating that the models might perform better on precision metrics than initially reflected in the results.
+Figure \ref{fig:comparison} provides visual comparisons of original RGB images, detector predictions, and NDVI annotations, showcasing the detector's proficiency in detecting black-grass amidst wheat. The detector identifies highly probable candidates for black-grass, some of which may actually be instances of black-grass that were missed during the annotation stage. This observation suggests that certain false positives impacting the precision scores might be accurate detections. Consequently, this could lead to an underestimation of the precision scores, indicating that the configurations might perform better on precision metrics than initially reflected in the results.
 
 
 
@@ -369,8 +401,10 @@ The findings of this study have significant implications for precision agricultu
 Several challenges were encountered during the study:
 
 \begin{itemize}
-    \item \textbf{Optimal Detection Timing:} The best detection period is between March and April when visual separation between black-grass and wheat is sufficient, and herbicide application is possible.
-    \item \textbf{Image Alignment:} Accurate alignment of multispectral images is crucial. Misalignment can significantly degrade the quality of vegetation indices and the subsequent analysis.
+    \item \textbf{Optimal Detection Timing:} The most useful detection period in the evaluated campaign was between late March and early-to-mid April, when visual separation between black-grass and wheat was sufficient and before wheat growth caused strong occlusion of black-grass.
+    \item \textbf{Image Alignment:} Accurate alignment of multispectral images is crucial. Misalignment can significantly degrade the quality of vegetation indices and the subsequent analysis. Robustness to alignment errors and different sensor conditions was not evaluated separately in this study.
+    \item \textbf{Within-field Evaluation:} The train, validation, and test subsets were drawn from different parts of the same field and from a narrow acquisition window. This supports a controlled comparison of VI-channel effects under similar field conditions, but it may also simplify the generalization problem and should not be interpreted as a fully independent field-level generalization test.
+    \item \textbf{NDVI-assisted Annotation:} NDVI was used as visual support during annotation. This may affect interpretation of the NDVI input-channel configuration and motivates cautious conclusions about NDVI-specific performance.
     \item \textbf{Small Sample Size:} The study's sample size is limited. Increasing the dataset size across various fields and seasons would enhance the generalizability of the results.
 \end{itemize}
 
@@ -385,7 +419,7 @@ Future research should explore additional vegetation indices and their combinati
 
 \section{Conclusion}
 
-This study demonstrates the significant impact of vegetation indices, particularly the Triangular Greenness Index (TGI) and Excess Green Index (ExG), in improving the performance of neural networks for black-grass detection in precision agriculture. Both indices outperformed the 5-channel baseline model in terms of precision, while maintaining high recall values. TGI, in particular, achieved the highest average precision in challenging scenarios, such as weeds located between and within crop rows.
+This study demonstrates the significant impact of vegetation indices, particularly the Triangular Greenness Index (TGI) and Excess Green Index (ExG), in improving the performance of neural networks for black-grass detection in precision agriculture. Both indices outperformed the 5-channel baseline configuration in terms of precision, while maintaining high recall values. TGI, in particular, achieved the highest average precision in challenging scenarios, such as weeds located between and within crop rows.
 
 These results underline the potential of utilizing UAV-acquired multispectral imagery combined with appropriate vegetation indices to enhance weed management. By integrating these advanced methods, farmers can more accurately detect weeds like black-grass, enabling more targeted herbicide application and minimizing environmental impact.
 
