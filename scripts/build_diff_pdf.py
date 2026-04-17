@@ -10,6 +10,7 @@ when run from WSL.
 from __future__ import annotations
 
 import argparse
+import json
 import platform
 import re
 import shutil
@@ -17,7 +18,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 
 DEFAULT_OLD = "../IEEE_Access_before_review/access_revised_v2.tex"
@@ -36,6 +37,44 @@ AUX_SUFFIXES = (
     ".synctex.gz",
     ".toc",
 )
+
+ANNOTATED_SUFFIX = "_annotated_reviewermap"
+
+ANNOTATION_PREAMBLE = r"""
+% Reviewer-comment annotations added after latexdiff generation
+\RequirePackage{xcolor}
+\RequirePackage{marginnote}
+\addtolength{\paperwidth}{10cm}
+\setlength{\pdfpagewidth}{\paperwidth}
+\addtolength{\oddsidemargin}{5cm}
+\addtolength{\evensidemargin}{5cm}
+\definecolor{reviewcommentline}{rgb}{0.07,0.24,0.53}
+\definecolor{reviewcommentfill}{rgb}{0.94,0.97,1.00}
+\definecolor{reviewcommenttext}{rgb}{0.04,0.15,0.34}
+\setlength{\marginparwidth}{4.6cm}
+\setlength{\marginparsep}{6pt}
+\newcommand{\ReviewTodoFormat}[3]{%
+  \raggedright
+  \sffamily
+  \textbf{\textcolor{reviewcommenttext}{#1}}\\[-1pt]
+  \textbf{\textcolor{reviewcommenttext}{#2}}\\[2pt]
+  \textcolor{reviewcommenttext}{#3}%
+}
+\newcommand{\ReviewBubble}[3]{%
+  \begingroup
+  \setlength{\fboxsep}{6pt}%
+  \fcolorbox{reviewcommentline}{reviewcommentfill}{%
+    \parbox{4.3cm}{\ReviewTodoFormat{#1}{#2}{#3}}%
+  }%
+  \endgroup
+}
+\newcommand{\ReviewMarginComment}[3]{%
+  \marginnote{\ReviewBubble{#1}{#2}{#3}}%
+}
+\newcommand{\ReviewInlineComment}[3]{%
+  \par\smallskip\noindent\ReviewBubble{#1}{#2}{#3}\par\smallskip
+}
+"""
 
 LOG_PROBLEM_PATTERNS = (
     re.compile(r"! LaTeX Error"),
@@ -132,6 +171,18 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         action="store_true",
         help="Print the full commands before running them.",
     )
+    parser.add_argument(
+        "--annotated-review-comments",
+        action="store_true",
+        help="Inject reviewer-comment annotations into the generated diff TeX/PDF.",
+    )
+    parser.add_argument(
+        "--review-map",
+        help=(
+            "JSON file describing reviewer-comment annotations to inject into the "
+            "generated diff TeX."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -157,6 +208,14 @@ def quote_cmd_arg(value: str) -> str:
         return '""'
     if re.search(r'[ \t&()^=;!,`~\[\]{}"]', value):
         return '"' + value.replace('"', r"\"") + '"'
+    return value
+
+
+def quote_cmd_exe_arg(value: str) -> str:
+    if not value:
+        return '""'
+    if re.search(r'[ \t&()^=;!,`~\[\]{}"]', value):
+        return '"' + value.replace('"', '""') + '"'
     return value
 
 
@@ -188,9 +247,10 @@ def tool_command(tool: Tool, args: Iterable[str | Path], _cwd: Path) -> list[str
             converted_args.append(path_for_tool(arg, tool))
         else:
             converted_args.append(arg)
-    # Keep cmd.exe invocation as separate argv items. A single /c command string
-    # is fragile with spaces in OneDrive paths and nested quotes.
-    return ["cmd.exe", "/c", tool.executable, *converted_args]
+    command_str = " ".join(
+        quote_cmd_exe_arg(part) for part in [tool.executable, *converted_args]
+    )
+    return ["cmd.exe", "/c", command_str]
 
 
 def run(
@@ -218,13 +278,15 @@ def find_tool(name_or_path: str, label: str) -> Tool:
     if is_explicit_path(name_or_path):
         path = Path(name_or_path)
         if path.exists():
+            if path.suffix.lower() == ".exe" and is_wsl():
+                return Tool(label, wsl_to_windows(path), "cmd")
             return Tool(label, str(path), "native")
 
     native = shutil.which(name_or_path)
     if native:
         return Tool(label, native, "native")
 
-    if shutil.which("cmd.exe"):
+    try:
         where = subprocess.run(
             ["cmd.exe", "/c", "where", name_or_path],
             stdout=subprocess.PIPE,
@@ -232,6 +294,8 @@ def find_tool(name_or_path: str, label: str) -> Tool:
         )
         if where.returncode == 0:
             return Tool(label, name_or_path, "cmd")
+    except OSError:
+        pass
 
     raise RuntimeError(
         f"Could not find {label!r}. Install it, add it to PATH, or pass --{label}-bin."
@@ -250,6 +314,10 @@ def default_output_name(old_file: Path, new_file: Path) -> str:
     return f"{new_file.stem}_diff_{baseline_slug}"
 
 
+def default_annotated_output_name(old_file: Path, new_file: Path) -> str:
+    return default_output_name(old_file, new_file) + ANNOTATED_SUFFIX
+
+
 def slugify(value: str) -> str:
     value = value.replace("IEEE_Access_", "")
     value = value.replace("Access_", "")
@@ -264,6 +332,155 @@ def validate_inputs(old_file: Path, new_file: Path) -> None:
         raise FileNotFoundError(f"Required TeX file(s) not found:\n{formatted}")
     if old_file == new_file:
         raise ValueError("--old and --new point to the same file.")
+
+
+def validate_review_map(review_map: Path) -> None:
+    if not review_map.is_file():
+        raise FileNotFoundError(f"Review map not found: {review_map}")
+
+
+def escape_latex_text(text: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "{": r"\{",
+        "}": r"\}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    escaped = "".join(replacements.get(char, char) for char in text)
+    return escaped.replace("\n", r"\\ ")
+
+
+def comment_macro(entry: dict[str, Any]) -> str:
+    placement = entry.get("placement", "margin")
+    review_id = entry.get("id", "")
+    title = entry.get("title") or entry.get("label") or ""
+    body = entry.get("body") or ""
+    escaped_id = escape_latex_text(review_id)
+    escaped_title = escape_latex_text(title)
+    escaped_body = escape_latex_text(body)
+    if placement == "inline":
+        return rf"\ReviewInlineComment{{{escaped_id}}}{{{escaped_title}}}{{{escaped_body}}}"
+    if placement == "margin":
+        return rf"\ReviewMarginComment{{{escaped_id}}}{{{escaped_title}}}{{{escaped_body}}}"
+    raise ValueError(f"Unsupported annotation placement: {placement}")
+
+
+def insert_annotation_preamble(diff_tex: str) -> str:
+    marker = r"\begin{document}"
+    if ANNOTATION_PREAMBLE.strip() in diff_tex:
+        return diff_tex
+    if marker not in diff_tex:
+        raise RuntimeError("Could not find \\begin{document} while injecting annotation preamble.")
+    return diff_tex.replace(marker, ANNOTATION_PREAMBLE + "\n" + marker, 1)
+
+
+def append_review_appendix(diff_tex: str, payload: dict[str, Any]) -> str:
+    appendix_entries = payload.get("appendix_comments", [])
+    if not isinstance(appendix_entries, list) or not appendix_entries:
+        return diff_tex
+
+    blocks: list[str] = [
+        r"\clearpage",
+        r"\section*{Review Comment Mapping Notes}",
+        (
+            r"This review-only appendix summarizes comments that are addressed "
+            r"through distributed or global manuscript revisions and therefore "
+            r"are not always captured by a single local diff bubble."
+        ),
+        r"\begin{itemize}",
+    ]
+
+    for entry in appendix_entries:
+        if not isinstance(entry, dict):
+            raise ValueError("Each appendix comment entry must be an object.")
+        review_id = entry.get("id", "")
+        title = entry.get("title", "")
+        body = entry.get("body", "")
+        where = entry.get("where", "")
+        mapping_type = entry.get("mapping_type", "")
+        if not isinstance(review_id, str) or not review_id.strip():
+            raise ValueError("Each appendix comment entry needs a non-empty string 'id'.")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("Each appendix comment entry needs a non-empty string 'title'.")
+        if not isinstance(body, str) or not body.strip():
+            raise ValueError("Each appendix comment entry needs a non-empty string 'body'.")
+        if not isinstance(where, str):
+            raise ValueError("Each appendix comment entry 'where' must be a string.")
+        if not isinstance(mapping_type, str):
+            raise ValueError("Each appendix comment entry 'mapping_type' must be a string.")
+
+        item = (
+            r"\item \textbf{"
+            + escape_latex_text(review_id)
+            + r"} - \textbf{"
+            + escape_latex_text(title)
+            + r"}\\"
+            + escape_latex_text(body)
+        )
+        meta_parts = []
+        if mapping_type.strip():
+            meta_parts.append("Mapping: " + mapping_type.strip())
+        if where.strip():
+            meta_parts.append("Visible in: " + where.strip())
+        if meta_parts:
+            item += r"\\{\footnotesize " + escape_latex_text(" | ".join(meta_parts)) + r"}"
+        blocks.append(item)
+
+    blocks.append(r"\end{itemize}")
+    appendix_tex = "\n".join(blocks) + "\n"
+
+    for marker in (r"\section{ACKNOWLEDGMENT}", r"\bibliographystyle{IEEEtran}"):
+        if marker in diff_tex:
+            return diff_tex.replace(marker, appendix_tex + marker, 1)
+
+    raise RuntimeError("Could not find a safe insertion point for the review appendix.")
+
+
+def append_once(text: str, needle: str, addition: str) -> str:
+    if needle not in text:
+        raise RuntimeError(f"Annotation target was not found in diff TeX: {needle}")
+    return text.replace(needle, needle + addition, 1)
+
+
+def apply_review_annotations(output_tex: Path, review_map: Path) -> list[str]:
+    diff_tex = output_tex.read_text(encoding="utf-8")
+
+    payload: dict[str, Any] = json.loads(review_map.read_text(encoding="utf-8"))
+    entries = payload.get("annotations")
+    if not isinstance(entries, list):
+        raise ValueError("Review map must define an 'annotations' list.")
+
+    diff_tex = insert_annotation_preamble(diff_tex)
+
+    applied: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("Each annotation entry must be an object.")
+        target = entry.get("target")
+        review_id = entry.get("id", "")
+        title = entry.get("title") or entry.get("label")
+        body = entry.get("body", "")
+        if not isinstance(review_id, str):
+            raise ValueError("Each annotation entry 'id' must be a string.")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("Each annotation entry needs a non-empty string 'title' or 'label'.")
+        if not isinstance(target, str) or not target:
+            raise ValueError("Each annotation entry needs a non-empty string 'target'.")
+        if not isinstance(body, str):
+            raise ValueError("Each annotation entry 'body' must be a string.")
+
+        diff_tex = append_once(diff_tex, target, comment_macro(entry))
+        applied.append(review_id or title)
+
+    diff_tex = append_review_appendix(diff_tex, payload)
+    output_tex.write_text(diff_tex, encoding="utf-8")
+    return applied
 
 
 def generate_diff_tex(
@@ -355,8 +572,19 @@ def main(argv: Sequence[str]) -> int:
     old_file = resolve_input(args.old, project_dir)
     new_file = resolve_input(args.new, project_dir)
     validate_inputs(old_file, new_file)
+    review_map = None
+    if args.annotated_review_comments:
+        if not args.review_map:
+            raise ValueError("--annotated-review-comments requires --review-map.")
+        review_map = resolve_input(args.review_map, project_dir)
+        validate_review_map(review_map)
 
-    output_name = args.output_name or default_output_name(old_file, new_file)
+    default_name = (
+        default_annotated_output_name(old_file, new_file)
+        if args.annotated_review_comments
+        else default_output_name(old_file, new_file)
+    )
+    output_name = args.output_name or default_name
     output_tex = (new_file.parent / f"{slugify(output_name)}.tex").resolve()
 
     if output_tex.parent != new_file.parent.resolve():
@@ -370,6 +598,8 @@ def main(argv: Sequence[str]) -> int:
     print(f"Diff TeX: {output_tex}")
     if latexmk is not None:
         print(f"Diff PDF: {output_tex.with_suffix('.pdf')}")
+    if review_map is not None:
+        print(f"Review map: {review_map}")
     print(f"latexdiff: {latexdiff.executable} ({latexdiff.mode})")
     if latexmk is not None:
         print(f"latexmk:   {latexmk.executable} ({latexmk.mode})")
@@ -385,6 +615,10 @@ def main(argv: Sequence[str]) -> int:
         dry_run=args.dry_run,
         verbose=args.verbose,
     )
+
+    if args.annotated_review_comments and review_map is not None and not args.dry_run:
+        applied = apply_review_annotations(output_tex, review_map)
+        print(f"Applied {len(applied)} reviewer annotations.")
 
     output_pdf: Path | None = None
     if not args.tex_only and latexmk is not None:
