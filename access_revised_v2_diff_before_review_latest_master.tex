@@ -1,7 +1,7 @@
 %DIF 1-6d1
 %DIF LATEXDIFF DIFFERENCE FILE
-%DIF DEL C:\Users\Simon\OneDrive - BTH\Research\Weed\Articel\Access\IEEE_Access_before_review\access_revised_v2.tex         Fri Apr 10 00:40:30 2026
-%DIF ADD C:\Users\Simon\OneDrive - BTH\Research\Weed\Articel\Access\WeedArticleI_IEEE_Access__Copy_\access_revised_v2.tex   Wed Apr 22 19:54:48 2026
+%DIF DEL C:\users\simon\onedrive - bth\research\weed\articel\access\IEEE_Access_before_review\access_revised_v2.tex         Fri Apr 10 00:40:30 2026
+%DIF ADD C:\users\simon\onedrive - bth\research\weed\articel\access\WeedArticleI_IEEE_Access__Copy_\access_revised_v2.tex   Fri Apr 24 12:20:53 2026
 %DIF < 
 %DIF < 
 %DIF < \usepackage{float}
@@ -208,7 +208,7 @@ Recent advancements in deep neural networks have provided reliable object detect
 }\DIFaddend 
 
 \DIFdelbegin \DIFdel{There are several }\DIFdelend \DIFaddbegin \subsection{\DIFadd{Related Work and Study Positioning}}
-\DIFadd{Classical image-analysis approaches for weed detection often rely on color indices, vegetation indices, spectral thresholds, and handcrafted features. These approaches remain important because vegetation indices such as the Excess Green Index (ExG) and the Normalized Difference Vegetation Index (NDVI) can emphasize plant material under varying soil, residue, and illumination conditions \mbox{%DIFAUXCMD
+\DIFadd{Classical image-analysis approaches for weed detection often rely on color indices, vegetation indices, spectral thresholds, and handcrafted features rather than learned representations. These approaches remain important because color and vegetation-index methods, including the Excess Green Index (ExG) and the Normalized Difference Vegetation Index (NDVI), can emphasize plant material under varying soil, residue, and illumination conditions \mbox{%DIFAUXCMD
 \cite{woebbecke1995color, pettorelli2013}}\hskip0pt%DIFAUXCMD
 . In black-grass studies, UAV multispectral imagery and spectral indices have been used for mapping and classification, showing that spectral information is valuable but sensitive to crop context, acquisition timing, and site variability \mbox{%DIFAUXCMD
 \cite{lambert_evaluating_2018, lambert_testing_2019, su_spectral_2022, cox_black-grass_2023, goodsell_black_grass_2024}}\hskip0pt%DIFAUXCMD
@@ -315,7 +315,8 @@ The different VIs have different properties and are used for different purposes.
 \end{align}
 
 
-Here, the wavelength in $nm$ is denoted by $\lambda$, the image by $I$, and the channel with the subscript.
+Here, the wavelength in $nm$ is denoted by $\lambda$, the image \DIFaddbegin \DIFadd{intensity }\DIFaddend by $I$, and the \DIFdelbegin \DIFdel{channel with }\DIFdelend \DIFaddbegin \DIFadd{spectral band by }\DIFaddend the subscript. \DIFaddbegin \DIFadd{Thus, $I_{\text{B}}$, $I_{\text{G}}$, $I_{\text{R}}$, and $I_{\text{NIR}}$ refer to pixel values in the aligned blue, green, red, and near-infrared band images, respectively. Each formula was applied pixel-wise to generate a VI image that could be stacked with the original multispectral bands as an additional detector input.
+}\DIFaddend 
 
 \newlength{\defaulttabcolsep} 
 \setlength{\defaulttabcolsep}{\tabcolsep} 
@@ -359,8 +360,7 @@ Here, the wavelength in $nm$ is denoted by $\lambda$, the image by $I$, and the 
 
 \subsection{Model \DIFaddbegin \DIFadd{and Training Adaptation}\DIFaddend }
 
-\DIFdelbegin \DIFdel{Our detection model is a modified version of the YOLO }\DIFdelend \DIFaddbegin \DIFadd{The detector is based on a YOLO instance-segmentation }\DIFaddend architecture \cite{Jocher_Ultralytics_YOLO_2023}, adapted to accept multispectral inputs.\DIFaddbegin \footnote{\DIFadd{The reported experiments were implemented with Ultralytics YOLOv8-seg. The article refers to the detector more generally as YOLO-based because the contribution is the multispectral input adaptation and VI-channel comparison rather than a version-specific change to the model family.}} \DIFaddend In contrast to conventional YOLO networks that use RGB images, \DIFdelbegin \DIFdel{our baseline model }\DIFdelend \DIFaddbegin \DIFadd{the baseline configuration }\DIFaddend uses the five aligned spectral bands captured by the UAV (Blue, Green, Red, Red Edge, and Near-Infrared (NIR); see Section~\ref{seq:VI}). \DIFaddbegin \DIFadd{The architecture-level adaptation is the input-channel configuration: the baseline uses five input channels, while the VI configurations use six input channels. The backbone and segmentation head follow the standard YOLO segmentation design; no new detection block is introduced.
-}\DIFaddend 
+\DIFdelbegin \DIFdel{Our detection model is a modified version of the YOLO }\DIFdelend \DIFaddbegin \DIFadd{The detector is based on a YOLO instance-segmentation }\DIFaddend architecture \cite{Jocher_Ultralytics_YOLO_2023}, adapted to accept multispectral inputs.\DIFaddbegin \footnote{\DIFadd{The reported experiments were implemented with Ultralytics YOLOv8-seg. The article refers to the detector more generally as YOLO-based because the contribution is the multispectral input adaptation and VI-channel comparison rather than a version-specific change to the model family.}} \DIFaddend In contrast to conventional YOLO networks that use RGB images, \DIFdelbegin \DIFdel{our baseline model }\DIFdelend \DIFaddbegin \DIFadd{the baseline configuration }\DIFaddend uses the five aligned spectral bands \DIFdelbegin \DIFdel{captured by the UAV (Blue, Green, Red, Red Edge, and Near-Infrared (NIR); see Section~\ref{seq:VI})}\DIFdelend \DIFaddbegin \DIFadd{defined in Section~\ref{seq:VI}: B, G, R, RE, and NIR. The architecture-level adaptation is the input-channel configuration: the baseline uses five input channels, while the VI configurations use six input channels. The backbone and segmentation head follow the standard YOLO segmentation design; no new detection block is introduced}\DIFaddend .
 
 As previous studies have also confirmed, multispectral data can improve detection in agricultural settings by providing spectral information beyond the visible range \DIFdelbegin \DIFdel{\mbox{%DIFAUXCMD
 \cite{liu_automated_2023, sportelli_evaluation_2023, dutta_multispectral_2021}}\hskip0pt%DIFAUXCMD
